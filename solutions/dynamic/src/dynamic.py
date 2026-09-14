@@ -21,6 +21,17 @@ def compare(op, v1: int, v2: int) -> bool:
     match op:
         case jvm.CmpOpr.Eq:
             return v1 == v2
+        case jvm.CmpOpr.Ne:
+            return v1 != v2
+        case jvm.CmpOpr.Lt:
+            return v1 < v2
+        case jvm.CmpOpr.Le:
+            return v1 <= v2
+        case jvm.CmpOpr.Gt:
+            return v1 > v2
+        case jvm.CmpOpr.Ge:
+            return v1 >= v2
+
         case _:
             raise NotImplementedError(f"Unhandled comparation {op!r}")
 
@@ -75,11 +86,22 @@ def step(bc: jpamb.Bytecode, state: jvmc.State) -> tuple[jvmc.PC, jvmc.State | s
         case jvm.New(classname=jvm.ClassName("java.lang.AssertionError")):
             # Hack -- if we create an assertion error, we probably also throw it.
             output = "assertion error"
+        case jvm.Ifz(condition=op, target=target):
+            value = frame.stack.pop()
+            assert isinstance(value, jvmc.StackInt), f"expected int, but got {value}"
 
+            if compare(op, value.value, 0):
+                frame.pc %= target
+            else:
+                frame.pc += 1
+        case jvm.Load(type=jvm.Int(), index=n):
+            v = frame.locals[n]
+            frame.stack.push(v)
+            frame.pc += 1
+        
         case a:
             raise NotImplementedError(a.help())
-
-    assert isinstance(output, (jvmc.State, str))
+            assert isinstance(output, (jvmc.State, str))
 
     return pc, output
 
