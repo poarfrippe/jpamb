@@ -1,5 +1,6 @@
 import random
 import sys
+import string
 
 import jpamb
 import jvm
@@ -13,7 +14,14 @@ def binary(op, v1: int, v2: int) -> int | str:
                 return v1 // v2
             except ZeroDivisionError:
                 return "divide by zero"
-        case a:
+        case jvm.BinaryOpr.Sub:
+            return v1 - v2
+        case jvm.BinaryOpr.Add:
+            return v1 + v2
+        case jvm.BinaryOpr.Mul:
+            return v1 * v2
+
+        case _:
             raise NotImplementedError(f"Unhandled binary {op!r}")
 
 
@@ -46,9 +54,13 @@ def step(bc: jpamb.Bytecode, state: jvmc.State) -> tuple[jvmc.PC, jvmc.State | s
     match opr:
         case jvm.Push(type=t, value=v):
             if t is jvm.Int():
+                assert isinstance(v, int)
                 frame.stack.push(jvmc.StackInt(v))
+            elif t is jvm.Reference():
+                assert isinstance(v, int), f"expected reference, but got {v}"
+                frame.stack.push(jvmc.StackReference(v))
             else:
-                raise NotImplementedError("Error")
+                raise NotImplementedError(f"Error for {t!r}")
             frame.pc += 1
 
         case jvm.Binary(type=jvm.Int(), operant=op):
@@ -65,15 +77,25 @@ def step(bc: jpamb.Bytecode, state: jvmc.State) -> tuple[jvmc.PC, jvmc.State | s
                 frame.pc += 1
 
         case jvm.Return(type=t):
-            if t is not None:
-                raise NotImplementedError("Still to be done")
-
-            state.frames.pop()
-
-            if state.frames:
-                raise NotImplementedError("Still to be done")
-            else:
-                output = "ok"
+            match t:
+                case jvm.Int():
+                    v = frame.stack.pop()   # pop current frame stack
+                    state.frames.pop()
+                    if state.frames:        # is there more frames? but nobody has ever taken one away, of course there is one!!! :(((((
+                        frame = state.frames.peek()
+                        frame.stack.push(v) #push onto next frames stack
+                        frame.pc += 1
+                    else:
+                        output = "ok" # war letste funktion (main?) - tschüss
+                case a:
+                    if a is not None:
+                        raise NotImplementedError("Still to be done")
+                        
+                    state.frames.pop()
+                    if state.frames:
+                        raise NotImplementedError("Still to be done")
+                    else:
+                        output = "ok"
 
         case jvm.Get(static=True, field=field):
             # Hack - Only handle the assertion case
@@ -98,11 +120,114 @@ def step(bc: jpamb.Bytecode, state: jvmc.State) -> tuple[jvmc.PC, jvmc.State | s
             v = frame.locals[n]
             frame.stack.push(v)
             frame.pc += 1
-        
+        case jvm.Load(type=jvm.Reference(), index=n):
+            v = frame.locals[n]
+            frame.stack.push(v)
+            frame.pc += 1
+        case jvm.If(condition=op, target=target):
+            v2 = frame.stack.pop()
+            v1 = frame.stack.pop()
+            assert isinstance(v1, jvmc.StackInt), f"expected int, but got {v1}"
+            assert isinstance(v2, jvmc.StackInt), f"expected int, but got {v2}"
+
+            if compare(op, v1.value, v2.value):
+                frame.pc %= target
+            else:
+                frame.pc += 1
+        case jvm.NewArray(type=jvm.Int(), dim=1):
+            v = frame.stack.pop()
+            assert isinstance(v, jvmc.StackInt), f"expected int, but got {v}"
+            if v.value < 0:
+                raise RuntimeError("Negative Array Size")
+            ref = state.heap.new(jvmc.HeapArray(jvm.Int(), [0]*v.value))
+            frame.stack.push(ref)
+            frame.pc += 1
+        case jvm.Dup(words=1):
+            v = frame.stack.pop()
+            frame.stack.push(v)
+            frame.stack.push(v)
+            frame.pc += 1
+        case jvm.ArrayStore(type=jvm.Int()):
+            v, i, array = frame.stack.pop(), frame.stack.pop(), frame.stack.pop()
+            assert isinstance(v, jvmc.StackInt), f"expected int, but got {v}"
+            assert isinstance(i, jvmc.StackInt), f"expected int, but got {i}"
+            assert isinstance(array, jvmc.StackReference), f"expected reference, but got {array}"
+            if not array.value == 0:
+                heap_array = state.heap[array]
+                assert isinstance(heap_array, jvmc.HeapArray), f"expected array, but got {heap_array}"
+                assert heap_array.contains == jvm.Int(), f"expected int array, but got {heap_array.contains} array"
+
+                if (0 <= i.value < len(heap_array.values)):
+                    heap_array.values[i.value] = v.value
+                    frame.pc += 1
+                else:
+                    output = "out of bounds"
+            else:
+                output = "null pointer"
+        case jvm.Store(type=jvm.Reference(), index=i):
+            ref = frame.stack.pop()
+            assert isinstance(ref, jvmc.StackReference), f"expected reference, but got {ref}"
+            frame.locals[i] = ref
+            frame.pc += 1
+        case jvm.Store(type=jvm.Int(), index=i):
+            v = frame.stack.pop()
+            assert isinstance(v, jvmc.StackInt), f"expected int, but got {v}"
+            frame.locals[i] = v
+            frame.pc += 1
+        case jvm.ArrayLength():
+            array = frame.stack.pop()
+            assert isinstance(array, jvmc.StackReference), f"expected reference, but got {array}"
+            if not array.value == 0:
+                heap_array = state.heap[array]
+                assert isinstance(heap_array, jvmc.HeapArray), f"expected array, but got {heap_array}"
+
+                frame.stack.push(jvmc.StackInt(len(heap_array.values)))
+                frame.pc += 1
+            else:
+                output = "null pointer"
+        case jvm.ArrayLoad(type=jvm.Int()):
+            i, array = frame.stack.pop(), frame.stack.pop()
+            assert isinstance(i, jvmc.StackInt), f"expected int, but got {i}"
+            assert isinstance(array, jvmc.StackReference), f"expected reference, but got {array}"
+            if not array.value == 0:
+                heap_array = state.heap[array]
+                assert isinstance(heap_array, jvmc.HeapArray), f"expected array, but got {heap_array}"
+                assert heap_array.contains == jvm.Int(), f"expected int array, but got {heap_array.contains} array"
+
+                if (0 <= i.value < len(heap_array.values)):
+                    frame.stack.push(jvmc.StackInt(heap_array.values[i.value]))
+                    frame.pc += 1
+                else:
+                    output = "out of bounds"
+            else:
+                output = "null pointer"
+        case jvm.ArrayLoad(type=jvm.Char()):
+            i, array = frame.stack.pop(), frame.stack.pop()
+            assert isinstance(i, jvmc.StackInt), f"expected int, but got {i}"
+            assert isinstance(array, jvmc.StackReference), f"expected reference, but got {array}"
+            if not array.value == 0:
+                heap_array = state.heap[array]
+                assert isinstance(heap_array, jvmc.HeapArray), f"expected array, but got {heap_array}"
+                assert heap_array.contains == jvm.Char(), f"expected char array, but got {heap_array.contains} array"
+
+                if (0 <= i.value < len(heap_array.values)):
+                    frame.stack.push(jvmc.StackInt(heap_array.values[i.value]))
+                    frame.pc += 1
+                else:
+                    output = "out of bounds"
+            else:
+                output = "null pointer"
+        case jvm.Incr(index=i, amount=amount):
+            local = frame.locals[i]
+            assert isinstance(local, jvmc.StackInt), f"expected int, but got {local}"
+            frame.locals[i] = jvmc.StackInt(local.value + amount)
+            frame.pc += 1
+        case jvm.Goto(target=target):
+            frame.pc %= target
         case a:
             raise NotImplementedError(a.help())
-            assert isinstance(output, (jvmc.State, str))
 
+    assert isinstance(output, (jvmc.State, str))
     return pc, output
 
 
@@ -142,7 +267,7 @@ def interpret():
     methodid, input, max_steps = jpamb.getcase(
         "dynamic",
         "1.0",
-        "The Rice Theorem Cookers",
+        "Frippe",
         ["dynamic", "python"],
         for_science=True,
     )
@@ -150,11 +275,12 @@ def interpret():
     suite, eff = jpamb.setup()
     bc = jpamb.Bytecode(suite, eff, {})
 
+    assert input is not None
     state = initial(bc, methodid, input)
 
     last = jpamb.emit_init(state)
 
-    for x in range(max_steps):
+    for _ in range(max_steps):
         pc, state = step(bc, state)
         last = jpamb.emit_step(last, pc, state)
 
@@ -168,15 +294,28 @@ def fuzz_input(rand: random.Random, methodid: jvm.AbsMethodID) -> jpamb.case.Inp
     for p in methodid.extension.params:
         match p:
             case jvm.Int():
-                input.append(jpamb.case.Int(rand.randint(-(1 << 31), 1 << 31)))
+                branch = rand.randint(0, 2)
+                if 1 == branch:
+                    input.append(jpamb.case.Int(rand.randint(-(1 << 31), 1 << 31)))
+                elif 2 == branch:
+                    input.append(jpamb.case.Int(10054203))
+                else:
+                    input.append(jpamb.case.Int(0))
             case jvm.Boolean():
                 input.append(jpamb.case.Boolean(1 == rand.randint(0, 1)))
+            case jvm.Object(name=jvm.ClassName("java.lang.String")):
+                if 1 == rand.randint(0, 1):
+                    length = rand.randint(0, 10)
+                    value = "".join(rand.choices(string.ascii_letters, k=length))
+                    input.append(jpamb.case.String(value))
+                else:
+                    input.append(jpamb.case.String("hello"))
             case a:
                 raise NotImplementedError(
-                    "Don't know how to create random values for {input}"
+                    f"Don't know how to create random values for {input} of type {a!r}"
                 )
 
-    return jpamb.case.Input(input)
+    return jpamb.case.Input(tuple(input))
 
 
 def analyse():
@@ -185,8 +324,8 @@ def analyse():
     methodid = jpamb.getmethodid(
         "dynamic",
         "1.0",
-        "The Rice Theorem Cookers",
-        ["dynamic", "python"],
+        "Frippe",
+        ["dynamic", "python"], #tag: kann ich dann coverage hinzufuegen wenn ich das mache.
         for_science=True,
     )
 
@@ -197,16 +336,20 @@ def analyse():
 
     import random
 
+    # apparently this brakes everything... eventhough they sayed: when params: exit early.... what the helly?
+    # if methodid.extension.params:
+    #     return
+
     # Make the randomness deterministic
     rand = random.Random(0)
 
     behaviors = set()
     # Try 10 random inputs
-    for i in range(10):
+    for _ in range(20):
         input = fuzz_input(rand, methodid)
         state = initial(bc, methodid, input)
 
-        for x in range(MAX_STEPS):
+        for _ in range(MAX_STEPS):
             _, state = step(bc, state)
             if isinstance(state, str):
                 behaviors.add(state)
@@ -219,4 +362,9 @@ def analyse():
             else:
                 print(f"{query};found")
         else:
-            print(f"{query};not-found")
+            # print(f"{query};not-found")
+            if len(input.values) == 0:
+                print(f"{query};no-error-ever")
+            else:
+                print(f"{query};not-found-trough-fuzz")
+        
