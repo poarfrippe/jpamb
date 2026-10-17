@@ -48,6 +48,7 @@ class State(sexpr.AsSExpr):
         return State(self.locals, self.stack + (value,))
 
     def pop(self, number=1):
+        if number == 0: return [], self
         return self.stack[-number:], State(self.locals, self.stack[:-number])
 
     def load(self, index):
@@ -88,6 +89,9 @@ def manystep(
             yield (pc + 1, state.push(va))
 
         case jvm.Ifz(condition=op, target=target):
+            if target <= pc.offset:
+                yield "*"
+
             [val], after = state.pop(1)
 
             for res in SignSet.compare(val, SignSet.abstract([StackInt(0)]), op):
@@ -104,6 +108,8 @@ def manystep(
             yield (pc + 1, state.push(va))
 
         case jvm.Goto(target=t):
+            if t <= pc.offset:
+                yield "*"
             yield (pc % t, state)
 
         case jvm.Binary(type=jvm.Int(), operant=op):
@@ -111,7 +117,8 @@ def manystep(
             res, err = SignSet.arithmetic(v1, v2, op)
             for s in err:
                 yield s
-            yield (pc + 1, after.push(res))
+            if res.signs:
+                yield (pc + 1, after.push(res))
 
         case jvm.Return(type=None):
             yield "ok"
@@ -123,18 +130,23 @@ def manystep(
         case jvm.New(classname=jvm.ClassName("java.lang.AssertionError")):
             # Hack -- if we create an assertion error, we probably also throw it.
             yield "assertion error"
-        case jvm.Push(type=t, value=v):
-            if t is jvm.Int():
-                assert isinstance(v, int)
-                after = state.push(SignSet.abstract([StackInt(v)]))
-            elif t is jvm.Reference():
-                assert isinstance(v, int), f"expected reference, but got {v}"
-                after = state.push(SignSet.from_sign('+'))
-            else:
-                raise NotImplementedError(f"Error for {t!r}")
-
+        case jvm.Push(type=jvm.Int(), value=v):
+            assert isinstance(v, int)
+            after = state.push(SignSet.abstract([StackInt(v)]))
             yield (pc + 1, after)
+        case jvm.Push(type=jvm.Reference(), value=v):
+            after = state.push(SignSet.from_sign('0+'))
+            yield (pc + 1, after)
+        case jvm.Push(type=jvm.Object(name=jvm.ClassName("java.lang.String")), value=v):
+            after = state.push(SignSet.from_sign('+'))
+            yield (pc + 1, after)
+        case jvm.Push(type=t, value=v):
+            raise NotImplementedError(f"Error for {t!r}")
+
         case jvm.If(condition=op, target=target):
+            if target <= pc.offset:
+                yield "*"
+
             [v1, v2], after = state.pop(2)
             for res in SignSet.compare(v1, v2, op):
                 match res:
@@ -145,8 +157,9 @@ def manystep(
         case jvm.NewArray(type=jvm.Int(), dim=1):
             [val], after = state.pop(1)
             if -1 in val.signs:
-                raise RuntimeError("Negative Array Size")
-            yield (pc + 1, after.push(SignSet.from_sign('+')))
+                yield "out of bounds"
+            if val.signs - {-1}:
+                yield (pc + 1, after.push(SignSet.from_sign('+')))
         case jvm.Dup(words=1):
             [val], after = state.pop(1)
             yield (pc + 1, after.push(val).push(val)) 
@@ -154,7 +167,7 @@ def manystep(
             [array, index, _v], after = state.pop(3)
             if 0 in array.signs or -1 in array.signs:
                 yield "null pointer"
-            if -1 in index.signs:
+            if array.signs - {0, -1} and index.signs:
                 yield "out of bounds"
             if array.signs - {0, -1} and index.signs - {-1}:
                 yield (pc + 1, after)
@@ -167,14 +180,22 @@ def manystep(
                 yield "null pointer"
             if array.signs - {0, -1}:
                 yield (pc + 1, after.push(SignSet.from_sign('0+')))
-        case jvm.ArrayLoad(type=t):
+        case jvm.ArrayLoad(type=jvm.Int()):
             [array, index], after = state.pop(2)
             if 0 in array.signs or -1 in array.signs:
                 yield "null pointer"
-            if -1 in index.signs:
+            if array.signs - {0, -1} and index.signs:
                 yield "out of bounds"
             if array.signs - {0, -1} and index.signs - {-1}:
-                yield (pc + 1, after.push(SignSet.top() if t is jvm.Int() else SignSet.from_sign('01')))
+                yield (pc + 1, after.push(SignSet.top()))
+        case jvm.ArrayLoad(type=_t):
+            [array, index], after = state.pop(2)
+            if 0 in array.signs or -1 in array.signs:
+                yield "null pointer"
+            if array.signs - {0, -1} and index.signs:
+                yield "out of bounds"
+            if array.signs - {0, -1} and index.signs - {-1}:
+                yield (pc + 1, after.push(SignSet.from_sign('0+')))
         case jvm.Incr(index=i, amount=amount):
             old: SignSet = state.load(i)
             amountSign: SignSet = SignSet.abstract([StackInt(amount)])
@@ -184,7 +205,32 @@ def manystep(
             yield (pc + 1, updated)
         case jvm.Negate():
             [val], after = state.pop(1)
-            yield (pc + 1, after.push(SignSet.top - val)) #props not right
+            res, _ = SignSet.arithmetic(val, SignSet.from_sign('-'), jvm.BinaryOpr.Mul)
+            yield (pc + 1, after.push(res))
+        case jvm.InvokeVirtual(method=m) | jvm.InvokeSpecial(method=m) | jvm.InvokeStatic(method=m):
+            has_receiver = not isinstance(opr, jvm.InvokeStatic)
+            n = len(m.extension.params)
+            if has_receiver:
+                n += 1  # receiver
+
+            args, after = state.pop(n)
+            if has_receiver and (0 in args[0].signs or -1 in args[0].signs):
+                yield "null pointer"
+
+            # the call only returns normally if the receiver can be non-null
+            if not has_receiver or args[0].signs - {0, -1}:
+                if m.extension.return_type is not None:
+                    after = after.push(SignSet.from_sign('-0+'))
+
+                yield (pc + 1, after)
+                yield "out of bounds"
+                yield "assertion error"
+                yield "divide by zero"
+                yield "null pointer"
+                yield "*"
+        case jvm.Cast(): # man koennte wahrschienlich wenn auf unsigned gecasted wird das minus weg mahcen
+            yield(pc + 1, state)
+
         case a:
             raise NotImplementedError(f"still to be done: {a!r}")
 
