@@ -1,3 +1,4 @@
+from ast import Return
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -9,7 +10,7 @@ import jvm.state as jvms
 
 class Poset(ABC):
     @abstractmethod
-    def __eq__(self, other: Self) -> bool: ...
+    def __eq__(self, other: object) -> bool: ...
 
     @abstractmethod
     def __lt__(self, other: Self) -> bool: ...
@@ -171,27 +172,33 @@ class SignSet(Abstraction, Lattice):
     def abstract(cls, values: Iterable[jvms.StackValue]) -> Self:
         signs = set()
         for value in values:
-            signs.add(to_sign(value))
+            if value != None:
+                signs.add(to_sign(value))
         return cls(frozenset(signs))
 
     def __contains__(self, value: jvms.StackValue) -> bool:
         return to_sign(value) in self.signs
 
     @classmethod
-    def top(cls) -> bool:
+    def top(cls) -> Self: # changed to Self. Why should it be bool?
         return cls(frozenset([-1, 0, 1]))
 
     def __or__(self, other: "SignSet") -> "SignSet":
         if not isinstance(other, SignSet):
             return NotImplemented
 
-        return SignSet(self.signs | other.signs)
+        return SignSet(self.signs.union(other.signs))
 
     def __and__(self, other: "SignSet") -> "SignSet":
         if not isinstance(other, SignSet):
             return NotImplemented
 
         return SignSet(self.signs & other.signs)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, SignSet):
+            return NotImplemented
+        return self.signs == other.signs
 
     def arithmetic(
         self, other: "SignSet", opr: jvm.BinaryOpr
@@ -213,8 +220,61 @@ class SignSet(Abstraction, Lattice):
                     output.update(other.signs)
 
                 return (SignSet(output), set())
-            case _:
-                raise NotImplementedError(f"TODO: {opr}")
+            case jvm.BinaryOpr.Sub:
+                output = set()
+                if 1 in self.signs:
+                    output.add(1);
+                    if 1 in other.signs:
+                        output.update([0, -1])
+                if 0 in self.signs:
+                    for s in other.signs:
+                        output.add(s * -1)
+                if -1 in self.signs:
+                    output.add(-1)
+                    if -1 in other.signs:
+                        output.update([0, 1])
+                return (SignSet(output), set())
+            case jvm.BinaryOpr.Mul:
+                output = set()
+                if 0 in self.signs:
+                    output.add(0)
+                if 1 in self.signs:
+                    for s in other.signs:
+                        output.add(s)
+                if -1 in self.signs:
+                    for s in other.signs:
+                        output.add(s * -1)
+                return (SignSet(output), set())
+            case jvm.BinaryOpr.Div:
+                output = set()
+                errors = set()
+                if 0 in other.signs:
+                    errors.add("divide by zero")
+                if 0 in self.signs:
+                    output.add(0)
+                if 1 in self.signs:
+                    output.update(s for s in other.signs)
+                if -1 in self.signs:
+                    output.update(-s for s in other.signs)
+                return (SignSet(output), errors)
+            case jvm.BinaryOpr.Rem:
+                output = set()
+                errors = set()
+                if 0 in other.signs:
+                    errors.add("divide by zero")
+                if 0 in self.signs:
+                    output.add(0)
+                if 1 in self.signs:
+                    if 1 in other.signs:
+                        output.update([0, 1])
+                    if -1 in other.signs:
+                        output.update([-1, 0])
+                if -1 in self.signs:
+                    if 1 in other.signs:
+                        output.update([0, 1])
+                    if -1 in other.signs:
+                        output.update([-1, 0])
+                return (SignSet(output), errors)
 
     def compare(self, other: "SignSet", opr: jvm.CmpOpr) -> Iterable[bool]:
         match opr:
@@ -230,9 +290,70 @@ class SignSet(Abstraction, Lattice):
                         if x >= y:
                             cases.add(False)
                 return cases
-            case _:
-                raise NotImplementedError(f"TODO: {opr}")
-
+            case jvm.CmpOpr.Ge:
+                cases = set()
+                for x in self.signs:
+                    for y in other.signs:
+                        if x == 0 or y == 0:
+                            cases.add(x >= y)
+                            continue
+                        if x >= y:
+                            cases.add(True)
+                        if x <= y:
+                            cases.add(False)
+                return cases
+            case jvm.CmpOpr.Ne:
+                case = set()
+                for x in self.signs:
+                    for y in other.signs:
+                        if x == 0 or y == 0:
+                            case.add(x!=y)
+                            continue
+                        if x != y:
+                            case.add(True)
+                        if x == y:
+                            case.update([True, False])
+                return case
+            case jvm.CmpOpr.Eq:
+                case = set()
+                for x in self.signs:
+                    for y in other.signs:
+                        if x == 0 or y == 0:
+                            case.add(x==y)
+                            continue
+                        if x != y:
+                            case.add(False)
+                        if x == y:
+                            case.update([True, False])
+                return case
+            case jvm.CmpOpr.Lt:
+                case = set()
+                for x in self.signs:
+                    for y in other.signs:
+                        if x == 0 or y == 0:
+                            case.add(x<y)
+                            continue
+                        if x < y:
+                            case.add(True)
+                        if x > y:
+                            case.add(False)
+                        if x == y:
+                            case.update([True, False])
+                return case
+            case jvm.CmpOpr.Gt:
+                case = set()
+                for x in self.signs:
+                    for y in other.signs:
+                        if x == 0 or y == 0:
+                            case.add(x>y)
+                            continue
+                        if x < y:
+                            case.add(False)
+                        if x > y:
+                            case.add(True)
+                        if x == y:
+                            case.update([True, False])
+                return case
 
 from collections.abc import Iterable
 from dataclasses import dataclass

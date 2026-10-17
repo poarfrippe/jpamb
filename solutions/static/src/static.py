@@ -3,7 +3,7 @@ from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from abstractions import SignSet
+from abstractions import SignSet, Abstraction
 
 import jpamb
 import sexpr
@@ -14,7 +14,7 @@ from jvm.state import PC, StackInt
 @dataclass(frozen=True)
 class State(sexpr.AsSExpr):
     locals: tuple[SignSet, ...]
-    stack: tuple[SignSet, ...]
+    stack: tuple[SignSet | int, ...]
 
     def __post_init__(self):
         assert isinstance(self.locals, tuple)
@@ -33,6 +33,16 @@ class State(sexpr.AsSExpr):
             tuple(s1 | s2 for s1, s2 in zip(self.stack, other.stack)),
         )
 
+    def __and__(self, other):
+        assert isinstance(other, State), f"Expected State but got {other!r}"
+        assert len(self.stack) == len(other.stack), "Stacks should be equal lenght"
+        assert len(self.locals) == len(other.locals), "Locals should be equal lenght"
+
+        return State(
+            tuple(s1 & s2 for s1, s2 in zip(self.locals, other.locals)),
+            tuple(s1 & s2 for s1, s2 in zip(self.stack, other.stack)),
+        )
+
     def push(self, value: SignSet):
         assert isinstance(value, SignSet), f"Expected sign set but got {value}"
         return State(self.locals, self.stack + (value,))
@@ -49,6 +59,16 @@ class State(sexpr.AsSExpr):
             self.stack,
         )
 
+    # @classmethod
+    # def abstract(cls, values: Iterable[jvms.StackValue]) -> Self:
+    #     
+    #     return cls()
+    #
+    # def __contains__(self, value: jvms.StackValue) -> bool:
+    #     raise NotImplementedError 
+    # def __le__(self, other):
+    #     raise NotImplementedError
+
 
 def manystep(
     bc: jpamb.Bytecode,
@@ -56,8 +76,9 @@ def manystep(
     state: State,
 ) -> Iterable[tuple[PC, object] | str]:
     opr = bc[pc]
+
     match opr:
-        case jvm.Get(static=True, field=field):
+        case jvm.Get(static=True, field=field): # villeicht auch fuer nonstatic, hohlt naenmlich sachen vom heap, was 0pointer resulten kann!
             # Hack - Only handle the assertion case
             assert field.extension.name == "$assertionsDisabled"
 
@@ -85,13 +106,12 @@ def manystep(
         case jvm.Goto(target=t):
             yield (pc % t, state)
 
-        case jvm.Binary(operant=op):
+        case jvm.Binary(type=jvm.Int(), operant=op):
             [v1, v2], after = state.pop(2)
-            for res in SignSet.arithmetic(v1, v2, op):
-                if isinstance(res, str):
-                    yield res
-                else:
-                    yield (pc + 1, after.push(res))
+            res, err = SignSet.arithmetic(v1, v2, op)
+            for s in err:
+                yield s
+            yield (pc + 1, after.push(res))
 
         case jvm.Return(type=None):
             yield "ok"
@@ -103,6 +123,70 @@ def manystep(
         case jvm.New(classname=jvm.ClassName("java.lang.AssertionError")):
             # Hack -- if we create an assertion error, we probably also throw it.
             yield "assertion error"
+        case jvm.Push(type=t, value=v):
+            if t is jvm.Int():
+                assert isinstance(v, int)
+                after = state.push(SignSet.abstract([StackInt(v)]))
+            elif t is jvm.Reference():
+                assert isinstance(v, int), f"expected reference, but got {v}"
+                after = state.push(SignSet.from_sign('+'))
+            else:
+                raise NotImplementedError(f"Error for {t!r}")
+
+            yield (pc + 1, after)
+        case jvm.If(condition=op, target=target):
+            [v1, v2], after = state.pop(2)
+            for res in SignSet.compare(v1, v2, op):
+                match res:
+                    case True:
+                        yield (pc % target, after)
+                    case False:
+                        yield (pc + 1, after)
+        case jvm.NewArray(type=jvm.Int(), dim=1):
+            [val], after = state.pop(1)
+            if -1 in val.signs:
+                raise RuntimeError("Negative Array Size")
+            yield (pc + 1, after.push(SignSet.from_sign('+')))
+        case jvm.Dup(words=1):
+            [val], after = state.pop(1)
+            yield (pc + 1, after.push(val).push(val)) 
+        case jvm.ArrayStore(type=jvm.Int()):
+            [array, index, _v], after = state.pop(3)
+            if 0 in array.signs or -1 in array.signs:
+                yield "null pointer"
+            if -1 in index.signs:
+                yield "out of bounds"
+            if array.signs - {0, -1} and index.signs - {-1}:
+                yield (pc + 1, after)
+        case jvm.Store(index=i):
+            [val], after = state.pop(1)
+            yield (pc + 1, after.store(i, val))
+        case jvm.ArrayLength():
+            [array], after = state.pop(1)
+            if 0 in array.signs or -1 in array.signs:
+                yield "null pointer"
+            if array.signs - {0, -1}:
+                yield (pc + 1, after.push(SignSet.from_sign('0+')))
+        case jvm.ArrayLoad(type=t):
+            [array, index], after = state.pop(2)
+            if 0 in array.signs or -1 in array.signs:
+                yield "null pointer"
+            if -1 in index.signs:
+                yield "out of bounds"
+            if array.signs - {0, -1} and index.signs - {-1}:
+                yield (pc + 1, after.push(SignSet.top() if t is jvm.Int() else SignSet.from_sign('01')))
+        case jvm.Incr(index=i, amount=amount):
+            old: SignSet = state.load(i)
+            amountSign: SignSet = SignSet.abstract([StackInt(amount)])
+            new, _err = SignSet.arithmetic(old, amountSign, jvm.BinaryOpr.Add)
+            assert isinstance(new, SignSet), f"got: {new!r}"
+            updated: State = state.store(i, new)
+            yield (pc + 1, updated)
+        case jvm.Negate():
+            [val], after = state.pop(1)
+            yield (pc + 1, after.push(SignSet.top - val)) #props not right
+        case a:
+            raise NotImplementedError(f"still to be done: {a!r}")
 
 
 def initialstate(
@@ -175,7 +259,7 @@ def interpret():
     methodid, input, steps = jpamb.getcase(
         "static",
         "1.0",
-        "The Rice Theorem Cookers",
+        "Fripp",
         ["static", "python"],
         for_science=True,
     )
@@ -202,7 +286,7 @@ def analyse():
     methodid = jpamb.getmethodid(
         "static",
         "1.0",
-        "The Rice Theorem Cookers",
+        "Fripp",
         ["static", "python"],
         for_science=True,
     )

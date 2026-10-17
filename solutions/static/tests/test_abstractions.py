@@ -1,5 +1,8 @@
+from csv import Error
+from decimal import DivisionByZero
 import abstractions as ab
 import pytest
+import math
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -48,12 +51,27 @@ def arithmetic(opr, x, y):
     match opr:
         case jvm.BinaryOpr.Add:
             return jvms.StackInt(x.value + y.value)
+        case jvm.BinaryOpr.Sub:
+            return jvms.StackInt(x.value - y.value)
+        case jvm.BinaryOpr.Mul:
+            return jvms.StackInt(x.value * y.value)
+        case jvm.BinaryOpr.Div:
+            try:
+                v = x.value / y.value
+                return jvms.StackInt(math.ceil(v) if v > 0 else math.floor(v))    # to aboid rounding down
+            except ZeroDivisionError as _:
+                return
+        case jvm.BinaryOpr.Rem:
+            try:
+                return jvms.StackInt(x.value % y.value)
+            except ZeroDivisionError as _:
+                return
         case _:
             raise NotImplementedError("TODO")
 
 
 @given(
-    st.sampled_from([jvm.BinaryOpr.Add]),
+    st.sampled_from(jvm.BinaryOpr),
     st.sets(st_stack_ints()),
     st.sets(
         st_stack_ints(),
@@ -69,16 +87,23 @@ def test_signset_arithmetic(
     assert real <= abstracted
 
 
-def compare(opr, x, y):
+def compare(opr: jvm.CmpOpr, x, y):
     match opr:
         case jvm.CmpOpr.Le:
             return x.value <= y.value
-        case _:
-            raise NotImplementedError("TODO")
-
+        case jvm.CmpOpr.Ge:
+            return x.value >= y.value
+        case jvm.CmpOpr.Lt:
+            return x.value < y.value
+        case jvm.CmpOpr.Gt:
+            return x.value > y.value
+        case jvm.CmpOpr.Eq:
+            return x.value == y.value
+        case jvm.CmpOpr.Ne:
+            return x.value != y.value
 
 @given(
-    st.sampled_from([jvm.CmpOpr.Le]),
+    st.sampled_from(jvm.CmpOpr), # könnten man hier wegnehmen das le und villeicht oben beim compare die anderen auch schreiben?
     st.sets(st_stack_ints()),
     st.sets(
         st_stack_ints(),
