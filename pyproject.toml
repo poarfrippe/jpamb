@@ -8,7 +8,6 @@ version = "0.8.0"
 dependencies = [
   "PyYAML==6.0.*",
   "click==8.1.*",
-  "project-fuzz",
   "runit==0.1.*",
 ]
 authors = [

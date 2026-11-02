@@ -107,7 +107,6 @@ version = "0.8.0"
 source = { editable = "../../" }
 dependencies = [
     { name = "click" },
-    { name = "project-fuzz" },
     { name = "pyyaml" },
     { name = "runit" },
 ]
@@ -115,7 +114,6 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = "==8.1.*" },
-    { name = "project-fuzz" },
     { name = "pyyaml", specifier = "==6.0.*" },
     { name = "runit", git = "https://github.com/kalhauge/runit.git" },
 ]

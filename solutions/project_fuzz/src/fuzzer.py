@@ -14,7 +14,7 @@ def analyse():
     methodid = jpamb.getmethodid(
         "static",
         "1.0",
-        "Fripp",
+        "the coverage based fuzzer cookers",
         ["static", "python"],
         for_science=True,
     )
@@ -22,9 +22,11 @@ def analyse():
     suite, eff = jpamb.setup()
     bc = jpamb.Bytecode(suite, eff, {})
 
+    method = bc.getmethod(methodid)
+    print(f"{methodid}  (max_locals={method.max_locals})")
+    for offset, opr in enumerate(method.opcodes):
+        print(f"{offset:3}: {opr}")
 
-    print("Hello :)")
-    print(f"bc: {bc!r}")
-
+#just to test the hypothesis tests
 def n_larger_5(n):
     return n > 5
