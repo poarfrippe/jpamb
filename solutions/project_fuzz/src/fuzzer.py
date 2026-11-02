@@ -25,3 +25,6 @@ def analyse():
 
     print("Hello :)")
     print(f"bc: {bc!r}")
+
+def n_larger_5(n):
+    return n > 5
