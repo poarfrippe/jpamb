@@ -8,6 +8,7 @@ version = "0.8.0"
 dependencies = [
   "PyYAML==6.0.*",
   "click==8.1.*",
+  "project-fuzz",
   "runit==0.1.*",
 ]
 authors = [
@@ -44,5 +45,6 @@ ignore = ["F841", "F403"]
 
 [tool.uv.sources]
 runit = { git = "https://github.com/kalhauge/runit.git" }
+
 
 

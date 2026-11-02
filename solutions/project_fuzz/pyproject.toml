@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "project_fuzz"
+version = "0.1.0"
+description = "Analysis-guided, coverage-based fuzzer for JVM methods"
+requires-python = ">=3.13"
+dependencies = [
+  "jpamb",
+]
+
+[project.scripts]
+fuzz-analysis = "fuzzer:analyse"
+
+[tool.uv.sources]
+jpamb = { path = "../../", editable = true }
+#jpamb = { workspace = true }
+
+[dependency-groups]
+dev = [
+  "pytest>=9.1.1",
+  "hypothesis>=6.168.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
