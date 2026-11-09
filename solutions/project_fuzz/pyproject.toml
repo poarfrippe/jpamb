@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 fuzz-analysis = "fuzzer:analyse"
+fuzz-interpreter = "fuzzer:interpret"
 
 [tool.uv.sources]
 jpamb = { path = "../../", editable = true }
