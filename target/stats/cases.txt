@@ -32,6 +32,24 @@ jpamb.cases.Dependent.divisionLoop:(I)V                      (0) -> ok
 jpamb.cases.Dependent.divisionLoop:(I)V                      (1024) -> assertion error
 jpamb.cases.Dependent.normalizedDistance:(II)I               (0, 0) -> ok
 jpamb.cases.Dependent.safeDivByN:(I)I                        (0) -> ok
+jpamb.cases.Fuzzer.fuzzBoundary:(I)V                         (4096) -> ok
+jpamb.cases.Fuzzer.fuzzBoundary:(I)V                         (4097) -> assertion error
+jpamb.cases.Fuzzer.fuzzBoundary:(I)V                         (4098) -> ok
+jpamb.cases.Fuzzer.fuzzCombinedGuidance:(III)V               (0, 400, 12014) -> ok
+jpamb.cases.Fuzzer.fuzzCombinedGuidance:(III)V               (24691, 0, 0) -> ok
+jpamb.cases.Fuzzer.fuzzCombinedGuidance:(III)V               (24691, 400, 12013) -> ok
+jpamb.cases.Fuzzer.fuzzCombinedGuidance:(III)V               (24691, 400, 12014) -> assertion error
+jpamb.cases.Fuzzer.fuzzCombinedGuidance:(III)V               (24691, 400, 12015) -> ok
+jpamb.cases.Fuzzer.fuzzConstant:(ILjava/lang/String;)V       (0, s'fuzz') -> assertion error
+jpamb.cases.Fuzzer.fuzzConstant:(ILjava/lang/String;)V       (0, s'other') -> ok
+jpamb.cases.Fuzzer.fuzzConstant:(ILjava/lang/String;)V       (1339, s'other') -> assertion error
+jpamb.cases.Fuzzer.fuzzCoverage:(III)V                       (0, 0, 0) -> ok
+jpamb.cases.Fuzzer.fuzzCoverage:(III)V                       (31337, -27183, 0) -> ok
+jpamb.cases.Fuzzer.fuzzCoverage:(III)V                       (31337, -27183, 65521) -> assertion error
+jpamb.cases.Fuzzer.fuzzCoverage:(III)V                       (31337, 0, 0) -> ok
+jpamb.cases.Fuzzer.fuzzRuntimeComparison:(II)V               (100, 0) -> ok
+jpamb.cases.Fuzzer.fuzzRuntimeComparison:(II)V               (100, 3017) -> assertion error
+jpamb.cases.Fuzzer.fuzzRuntimeComparison:(II)V               (100, 3018) -> ok
 jpamb.cases.Loops.forever:()V                                () -> *
 jpamb.cases.Loops.neverAsserts:()V                           () -> *
 jpamb.cases.Loops.neverDivides:()I                           () -> *
