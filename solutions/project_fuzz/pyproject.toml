@@ -9,6 +9,7 @@ description = "Analysis-guided, coverage-based fuzzer for JVM methods"
 requires-python = ">=3.13"
 dependencies = [
   "jpamb",
+  "dynamic",
 ]
 
 [project.scripts]
@@ -17,7 +18,7 @@ fuzz-interpreter = "fuzzer:interpret"
 
 [tool.uv.sources]
 jpamb = { path = "../../", editable = true }
-#jpamb = { workspace = true }
+dynamic = { path = "../dynamic", editable = true }
 
 [dependency-groups]
 dev = [

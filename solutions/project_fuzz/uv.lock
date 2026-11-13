@@ -24,6 +24,20 @@ wheels = [
 ]
 
 [[package]]
+name = "dynamic"
+version = "0.1.0"
+source = { editable = "../dynamic" }
+dependencies = [
+    { name = "jpamb" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "jpamb", editable = "../../" }]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.1.1" }]
+
+[[package]]
 name = "hypothesis"
 version = "6.170.14"
 source = { registry = "https://pypi.org/simple" }
@@ -103,7 +117,7 @@ wheels = [
 
 [[package]]
 name = "jpamb"
-version = "0.8.0"
+version = "0.9.0"
 source = { editable = "../../" }
 dependencies = [
     { name = "click" },
@@ -113,7 +127,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "click", specifier = "==8.1.*" },
+    { name = "click", specifier = "==8.*" },
     { name = "pyyaml", specifier = "==6.0.*" },
     { name = "runit", git = "https://github.com/kalhauge/runit.git" },
 ]
@@ -148,6 +162,7 @@ name = "project-fuzz"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "dynamic" },
     { name = "jpamb" },
 ]
 
@@ -158,7 +173,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "jpamb", editable = "../../" }]
+requires-dist = [
+    { name = "dynamic", editable = "../dynamic" },
+    { name = "jpamb", editable = "../../" },
+]
 
 [package.metadata.requires-dev]
 dev = [
