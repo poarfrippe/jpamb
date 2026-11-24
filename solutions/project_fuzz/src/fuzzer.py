@@ -773,8 +773,8 @@ def analyse():
     int_dict: list[int] = []
     if mode == "full":
         try:
-            constants = syntaxAnalyser.getDictFromMethodIdTS(methodid)
-            int_dict = sorted(syntaxAnalyser.augmentWithBoundryValues(constants))
+            (intConstants, strLiterals) = syntaxAnalyser.getDictFromMethodIdTS(methodid) # returns a 2 tupel, adjust.
+            int_dict = sorted(syntaxAnalyser.augmentWithBoundryValues(intConstants))
         except BaseException as e:  # syntaxAnalyser calls sys.exit on failure
             print(f"constant extraction failed: {e!r}", file=sys.stderr)
 
@@ -783,6 +783,7 @@ def analyse():
         methodid,
         random.Random(seed),
         int_dict=int_dict,
+        str_dict=strLiterals,
         use_coverage=mode != "random",
     )
 
