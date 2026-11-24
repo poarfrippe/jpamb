@@ -769,6 +769,7 @@ def analyse():
     seed = int(os.environ.get("FUZZ_SEED", "0"))
     budget = float(os.environ.get("FUZZ_BUDGET", "2.0"))
     max_execs = int(os.environ.get("FUZZ_MAX_EXECS", "100000"))
+    generate_tests = int(os.environ.get("FUZZ_GEN_TESTS", "0"))
 
     int_dict: list[int] = []
     if mode == "full":
@@ -801,6 +802,8 @@ def analyse():
     )
     for outcome, values in fuzzer.witnesses.items():
         print(f"witness {outcome!r}: {fuzzer.to_input(values)}", file=sys.stderr)
+        if generate_tests and outcome != "ok":
+            print_error_forcing_test_stderr(methodid, outcome, values)
 
     deterministic = not fuzzer.params and fuzzer.crashes == 0
     for query in jpamb.QUERIES:
@@ -817,3 +820,6 @@ def analyse():
             print(f"{query};not-found")
 
 
+def print_error_forcing_test_stderr(methodId: jvm.AbsMethodID, outcome: str, failingInputs: tuple):
+    testMethodeName=f"{outcome.replace(" ", "_")}_{methodId.methodid.name}"
+    print(f"def {testMethodeName}:\n\t{methodId.classname}{methodId.methodid.name}{failingInputs!r}", file=sys.stderr) #not nice for strings atm
