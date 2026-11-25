@@ -4,6 +4,7 @@ import random
 import sys
 import time
 from dataclasses import dataclass
+import json
 
 import jpamb
 import jvm
@@ -774,7 +775,7 @@ def analyse():
     int_dict: list[int] = []
     if mode == "full":
         try:
-            (intConstants, strLiterals) = syntaxAnalyser.getDictFromMethodIdTS(methodid) # returns a 2 tupel, adjust.
+            (intConstants, strLiterals) = syntaxAnalyser.getDictFromMethodIdTS(methodid)
             int_dict = sorted(syntaxAnalyser.augmentWithBoundryValues(intConstants))
         except BaseException as e:  # syntaxAnalyser calls sys.exit on failure
             print(f"constant extraction failed: {e!r}", file=sys.stderr)
@@ -820,6 +821,32 @@ def analyse():
             print(f"{query};not-found")
 
 
+def java_arg(v) -> str:
+    if isinstance(v, bool):              # check before int: bool is a subclass of int
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, str):
+        return json.dumps(v, ensure_ascii=True)       # valid Java string literal
+    if isinstance(v, tuple):
+        if v and all(isinstance(x, str) for x in v):  # char[]
+            return "new char[]{" + ", ".join(f"(char) {ord(c)}" for c in v) + "}"
+        return "new int[]{" + ", ".join(str(x) for x in v) + "}"
+    raise NotImplementedError(type(v))
+
+
 def print_error_forcing_test_stderr(methodId: jvm.AbsMethodID, outcome: str, failingInputs: tuple):
-    testMethodeName=f"{outcome.replace(" ", "_")}_{methodId.methodid.name}"
-    print(f"def {testMethodeName}:\n\t{methodId.classname}{methodId.methodid.name}{failingInputs!r}", file=sys.stderr) #not nice for strings atm
+    name = f"{outcome.replace(' ', '_')}_{methodId.methodid.name}"
+    args = ", ".join(java_arg(a) for a in failingInputs)
+    call = f"{methodId.classname}.{methodId.methodid.name}({args});"
+    print(
+        f"static void {name}() {{\n"
+        f"\ttry {{\n"
+        f"\t\t{call}\n"
+        f'\t\tSystem.out.println("success");\n'
+        f"\t}} catch (Throwable t) {{\n"
+        f'\t\tSystem.out.println("fail: " + t);\n'
+        f"\t}}\n"
+        f"}}",
+        file=sys.stderr,
+    )
