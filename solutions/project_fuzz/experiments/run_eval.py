@@ -10,9 +10,11 @@ Run from the repository root with the project_fuzz environment:
     uv run --project solutions/project_fuzz python solutions/project_fuzz/experiments/run_eval.py --seeds 10 --execs 10000 --out results.csv
 
 The modes are the same as FUZZ_MODE in fuzzer.analyse():
-    random   - fresh random input every time, no feedback
-    coverage - coverage-guided (corpus + mutation), no dictionary
-    full     - coverage-guided + constants/strings from syntaxAnalyser
+    random     - fresh random input every time, no feedback
+    dictionary - fresh random input every time, but values also drawn from the
+                 constant dictionary (no coverage feedback)
+    coverage   - coverage-guided (corpus + mutation), no dictionary
+    full       - coverage-guided + constants/strings from syntaxAnalyser
 
 The budget is a number of executions (--execs), not seconds, so results do not
 depend on how fast the machine is. --time is only a safety cap.
@@ -36,7 +38,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "solutions" / "project_fuzz" / "src"))
 
-MODES = ["random", "coverage", "full"]
+MODES = ["random", "dictionary", "coverage", "full"]
 
 COLUMNS = [
     "method", "mode", "seed", "outcome", "possible", "found",
@@ -97,7 +99,7 @@ def fuzz_session(task):
     methodid = jvm.AbsMethodID.decode(method)
 
     int_dict, str_dict, status = ([], [], "ok")
-    if mode == "full":
+    if mode in ("full", "dictionary"):
         int_dict, str_dict, status = dictionary(methodid)
 
     first: dict[str, tuple[int, float]] = {}
@@ -113,7 +115,7 @@ def fuzz_session(task):
 
     fz = TimedFuzzer(
         _bc, methodid, random.Random(seed),
-        int_dict=int_dict, str_dict=str_dict, use_coverage=mode != "random",
+        int_dict=int_dict, str_dict=str_dict, use_coverage=mode in ("coverage", "full"),
     )
     start = time.monotonic()
     try:

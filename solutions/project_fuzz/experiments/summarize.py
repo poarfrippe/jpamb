@@ -28,7 +28,7 @@ from collections import defaultdict
 from itertools import combinations
 from pathlib import Path
 
-MODE_ORDER = ["random", "coverage", "full"]
+MODE_ORDER = ["random", "dictionary", "coverage", "full"]
 FAILED_STATUS = {"unsupported", "all-crashed", "hung"}
 
 
@@ -65,7 +65,7 @@ def md_table(header, rows) -> str:
 
 def tex_table(caption, label, header, rows, align=None) -> str:
     align = align or "l" + "r" * (len(header) - 1)
-    esc = lambda s: str(s).replace("_", r"\_").replace("%", r"\%").replace("#", r"\#").replace("<", r"$<$").replace("±", r"$\pm$")
+    esc = lambda s: str(s) if "$" in str(s) else str(s).replace("_", r"\_").replace("%", r"\%").replace("#", r"\#").replace("<", r"$<$").replace("±", r"$\pm$")
     body = "\n".join("    " + " & ".join(esc(c) for c in r) + r" \\" for r in rows)
     return (
         "\\begin{table}[t]\n  \\small\n"
@@ -181,10 +181,11 @@ def main():
     out_md.append("## 1. Bugs found per mode\n\n" + md_table(h1, t1) +
                   "\n\nAverage over all runs; ± is how much the runs vary. "
                   "The last column counts every bug the mode found at least once.")
+    h1t = ["Mode", "Failures per run", "In any run"]
     out_tex.append(tex_table(
         f"Bugs found per mode ({len(seeds)} seeds, about {round(budget, -2):.0f} executions per run, "
         f"{n_methods} methods, {len(failures)} possible failures; mean $\\pm$ standard deviation).",
-        "tab:overall", h1, t1))
+        "tab:overall", h1t, t1))
 
     # ---- Table 2: is the difference real? ----------------------------------
     t2 = [[f"{x} vs {y}", f"{diff:+.1f}", fmt_p(p), "yes" if p < 0.05 else "no",
@@ -195,8 +196,11 @@ def main():
                   "\n\np = chance of seeing this difference if both modes were equally good; "
                   "below 0.05 counts as real. A12 = how often a run of the first mode beats a run of the "
                   "second (0.5 = no difference, 1.0 = always; from 0.71 a large effect).")
-    out_tex.append(tex_table("Pairwise comparison of bugs found per run: Mann-Whitney U test and "
-                             "Vargha-Delaney A12 effect size.", "tab:stats", h2, t2))
+    t2t = [[r[0], r[1], r[2], r[4]] for r in t2]
+    out_tex.append(tex_table("Pairwise comparison of failures found per run: difference in means, Mann-Whitney U "
+                             "$p$-value (significant if $p<0.05$) and Vargha-Delaney $\\hat{A}_{12}$ (probability that "
+                             "a run of the first mode finds more failures).", "tab:stats",
+                             ["Comparison", "Diff.", "$p$", "$\\hat{A}_{12}$"], t2t))
 
     # ---- Table 3: which bugs differ ------------------------------------------
     pct = lambda t: [f"{int(round(rate[m][t] * 100))}%" for m in modes]
@@ -243,9 +247,9 @@ def main():
                   "\n\nPer bug: is one mode clearly faster (Mann-Whitney p < 0.05; a bug that is never found "
                   "counts as needing the whole budget)?")
     out_tex.append(tex_table("Speed: mean number of executions until first found, over the bugs every "
-                             "mode always finds.", "tab:speed", h4, t4))
+                             "mode always finds.", "tab:speed", ["Mode", "Executions"], t4))
     out_tex.append(tex_table("Number of bugs one mode finds significantly faster (Mann-Whitney "
-                             "$p<0.05$, not found counted as the full budget).", "tab:faster", hf, faster))
+                             "$p<0.05$, not found counted as the full budget).", "tab:faster", ["Comparison", "Faster", "Slower"], faster))
 
     if excluded:
         out_md.append(f"## Left out: {len(excluded)} methods the interpreter cannot run\n\n"
